@@ -1,0 +1,50 @@
+syntax = "proto3";
+
+message VoteRequest {
+  int32 candidate_id = 1;
+  int32 term = 2;
+  int32 log_length = 3;
+  int32 last_log_term = 4;
+}
+
+message VoteResponse {
+  bool vote_granted = 1;
+  int32 term = 2;
+  int32 id = 3;
+}
+
+
+message LogRequest {
+  int32 leaderId = 1;
+  int32 currentTerm = 2;
+  int32 prefixLen = 3;
+  int32 prefixTerm = 4;
+  int32 leaderCommit = 5;
+  repeated string suffix = 6;
+}
+
+message LogResponse {
+  int32 nodeId = 1;
+  int32 currentTerm = 2;
+  int32 ack = 3;
+  bool Success = 4;
+}
+
+
+message ServeClientArgs {
+  string Request = 1;
+}
+
+message ServeClientReply {
+  string Data = 1;
+  string LeaderID = 2;
+  bool Success = 3;
+}
+
+
+service RaftService {
+  rpc receiveVoteRequest(VoteRequest) returns (VoteResponse);
+  rpc serveClient(ServeClientArgs) returns (ServeClientReply);
+  rpc receiveLogRequest(LogRequest) returns (LogResponse);
+
+}
