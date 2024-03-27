@@ -3,6 +3,7 @@ import threading
 from concurrent import futures
 import time
 import grpc
+import os
 import raft_pb2
 import raft_pb2_grpc
 
@@ -64,6 +65,7 @@ class Node(raft_pb2_grpc.RaftServiceServicer):
             print(f"Election timer canceled for node {self.id}")
         else:
             print(f"No active election timer to cancel for node {self.id}")
+            self.startElectionTimer()
 
 
     def electionTimeout(self):
@@ -86,22 +88,27 @@ class Node(raft_pb2_grpc.RaftServiceServicer):
             if node != self.id:
                 print()
                 print("follower node is ", node)
-                '''request = voteRequest(       #rpc to send vote request
+                '''request = voteRequest(      
                     address = nodes[node],
                     msg = msg
                 )  '''
                 
-                channel = grpc.insecure_channel(nodes[node])  
-                stub = raft_pb2_grpc.RaftServiceStub(channel)
-                request = raft_pb2.VoteRequest(candidate_id = msg[1], term = msg[2], log_length = msg[3], last_log_term = msg[4])  # Example request
-                response = stub.receiveVoteRequest(request)   #rpc to receive vote request response
+                try:
+                    channel = grpc.insecure_channel(nodes[node])  
+                    stub = raft_pb2_grpc.RaftServiceStub(channel)
+                    request = raft_pb2.VoteRequest(candidate_id = msg[1], term = msg[2], log_length = msg[3], last_log_term = msg[4])  # Example request
+                    response = stub.receiveVoteRequest(request)   #rpc to receive vote request response
 
-                print("vote_granted: ", response.vote_granted)
-                print("term: ", response.term)
-                print("id: ", response.id)
-                print()
+                    print("vote_granted: ", response.vote_granted)
+                    print("term: ", response.term)
+                    print("id: ", response.id)
+                    print()
 
-                self.receiveVoteResponse(response)
+                    self.receiveVoteResponse(response)
+
+                except Exception as e:
+                    print(f"Node {node} is down")
+                    continue
         
         self.startElectionTimer()
         
@@ -193,29 +200,35 @@ class Node(raft_pb2_grpc.RaftServiceServicer):
 
     
     def replicateLog(self, node):
-        prefixLen = self.sentLength[node]
-        suffix = []
-        for i in range(prefixLen, len(self.log)):
-            suffix.append(self.log[i])
-        
-        prefixTerm = 0
-        if prefixLen > 0:
-            s = self.log[prefixLen - 1]
-            t = s.split()[-1]
-            prefixTerm = int(t)
-        
-        channel = grpc.insecure_channel(nodes[node])  
-        stub = raft_pb2_grpc.RaftServiceStub(channel)
-        request = raft_pb2.LogRequest(leaderId = self.id, currentTerm = self.currentTerm, prefixLen = prefixLen, prefixTerm = prefixTerm, leaderCommit = self.commitLength, suffix = suffix)  
-        response = stub.receiveLogRequest(request)   #rpc to receive log request response
+        try:
+            prefixLen = self.sentLength[node]
+            suffix = []
+            for i in range(prefixLen, len(self.log)):
+                suffix.append(self.log[i])
+            
+            prefixTerm = 0
+            if prefixLen > 0:
+                s = self.log[prefixLen - 1]
+                t = s.split()[-1]
+                prefixTerm = int(t)
+            
+            channel = grpc.insecure_channel(nodes[node])  
+            stub = raft_pb2_grpc.RaftServiceStub(channel)
+            request = raft_pb2.LogRequest(leaderId = self.id, currentTerm = self.currentTerm, prefixLen = prefixLen, prefixTerm = prefixTerm, leaderCommit = self.commitLength, suffix = suffix)  
+            response = stub.receiveLogRequest(request)   #rpc to receive log request response
 
-        print()
-        print("Current term: ", response.currentTerm)
-        print("Ack: ", response.ack)
-        print("Success: ", response.Success)
-        print()
+            print()
+            print("Node: ", node)
+            print("Current term: ", response.currentTerm)
+            print("Ack: ", response.ack)
+            print("Success: ", response.Success)
+            print()
 
-        self.receiveLogResponse(response)
+            self.receiveLogResponse(response)
+
+        except Exception as e:
+            print(f"Node {node} is down. Cannot replicate log.")
+            return
 
     
     def receiveLogRequest(self, request, context):
@@ -271,8 +284,15 @@ class Node(raft_pb2_grpc.RaftServiceServicer):
                 self.log.append(suffix[i])
             
         if leaderCommit > self.commitLength:
+            curr_dir = os.getcwd() + "/logs_node_" + str(self.id)
+            log_name = "logs.txt"
+            log_path = os.path.join(curr_dir, log_name)
+            f = open(log_path, "a")
             for i in range(self.commitLength, leaderCommit - 1):
                 print("Committing FOLLOWER log entry: ", self.log[i])        #store in logs.txt
+                f.write(self.log[i])
+                f.write("\n")
+            f.close()
 
             self.commitLength = leaderCommit
         
@@ -284,8 +304,15 @@ class Node(raft_pb2_grpc.RaftServiceServicer):
                 if self.ackLength[node] > self.commitLength:
                     acks += 1
             
+            curr_dir = os.getcwd() + "/logs_node_" + str(self.id)
+            log_name = "logs.txt"
+            log_path = os.path.join(curr_dir, log_name)
+            f = open(log_path, "a")
             if acks > len(nodes)/2:
                 print(" Committing LEADER log entry: ", self.log[self.commitLength])        #store in logs.txt
+                f.write(self.log[self.commitLength])
+                f.write("\n")
+                f.close()
                 self.commitLength += 1
             else:
                 break
@@ -302,6 +329,12 @@ class Node(raft_pb2_grpc.RaftServiceServicer):
 if __name__ == "__main__":
     node_id = int(input("Enter node ID: "))  # Example node id
     print()
+    current_directory = os.getcwd()
+    new_folder = "logs_node_" + str(node_id)
+    final_directory = os.path.join(current_directory, new_folder)
+    if not os.path.exists(final_directory):
+        os.makedirs(final_directory)
+
     node_address = nodes[node_id]  # Example node address
     client_address = "localhost:8080"  # Example client address
 
