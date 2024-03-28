@@ -4,6 +4,8 @@ from concurrent import futures
 import time
 import grpc
 import os
+import signal
+import sys
 import raft_pb2
 import raft_pb2_grpc
 
@@ -28,23 +30,42 @@ class Node(raft_pb2_grpc.RaftServiceServicer):
 
         self.server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
         raft_pb2_grpc.add_RaftServiceServicer_to_server(self, self.server)
-        self.server.add_insecure_port(address)  # Assuming port 50051, adjust as needed
+        self.server.add_insecure_port(address)        
         self.server.start()
 
-        self.replication_interval = 1  # Adjust the interval as needed (in seconds)
+        self.replication_interval = 1         # Adjust the interval as needed (in seconds)
         self.replication_thread = threading.Thread(target=self.periodicHeartbeats)
-        self.replication_thread.daemon = True  # Daemonize the thread so it exits when the main program exits
+        self.replication_thread.daemon = True          # Daemonize the thread so it exits when the main program exits
         self.replication_thread.start()
+
+        self.metadata = os.path.join(os.getcwd() + "/logs_node_" + str(self.id), "metadata.txt")        #Load metadata if it exists
+        if os.path.exists(self.metadata):
+            self.crashRecovery()
+
+        signal.signal(signal.SIGINT, self.signalHandler)       #On Ctrl+C, store metadata and exit
 
 
         
-
     def crashRecovery(self):
-        self.currentRole = "Follower"
-        self.currentLeader = None
-        self.votesReceived = []
-        self.sentLength = {}
-        self.ackLength = {}
+        f = open(self.metadata, "r")
+        lines = f.readlines()
+        f.close()
+        for line in lines:
+            key_value = line.strip().split(": ")
+            if len(key_value) == 2:
+                k, v = key_value
+                if k == "currentTerm":
+                    self.currentTerm = int(v)
+                elif k == "votedFor":
+                    self.votedFor = int(v)
+                elif k == "commitLength":
+                    self.commitLength = int(v)
+                elif k == "log":
+                    self.log = [entry.strip() for entry in v.split(",")]
+
+            elif len(key_value) == 1:       #log is empty
+                self.log = []
+
 
 
     def startElectionTimer(self):
@@ -316,13 +337,25 @@ class Node(raft_pb2_grpc.RaftServiceServicer):
                 self.commitLength += 1
             else:
                 break
+
         
+    def storeMetadata(self):
+        f = open(self.metadata, "w")
+        f.write(f"currentTerm: {self.currentTerm}\n")
+        f.write(f"votedFor: {self.votedFor}\n")
+        f.write(f"commitLength: {self.commitLength}\n")
+        f.write("log: ")
+        f.write(",".join(self.log))
+        f.write("\n")
+        f.close()
 
-                
-                
 
+    def signalHandler(self, sig, frame):
+        print("Exiting...")
+        self.storeMetadata()
+        sys.exit(0)
 
-
+        
 
 
 
