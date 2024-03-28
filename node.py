@@ -24,16 +24,19 @@ class Node(raft_pb2_grpc.RaftServiceServicer):
         self.currentRole = "Follower"
         self.currentLeader = None
         self.votesReceived = []
-        self.sentLength = {}
-        self.ackLength = {}
+        self.sentLength = {node_id: 0 for node_id in nodes}
+        self.ackLength = {node_id: 0 for node_id in nodes}
         self.electionTimer = None
+
+        self.dumpPath = os.path.join(os.getcwd() + "/logs_node_" + str(self.id), "dump.txt")   #dump file path
+        self.dump = open(self.dumpPath, "a")
 
         self.server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
         raft_pb2_grpc.add_RaftServiceServicer_to_server(self, self.server)
         self.server.add_insecure_port(address)        
         self.server.start()
 
-        self.replication_interval = 1         # Adjust the interval as needed (in seconds)
+        self.replication_interval = 0.1         # Adjust the interval as needed (in seconds)
         self.replication_thread = threading.Thread(target=self.periodicHeartbeats)
         self.replication_thread.daemon = True          # Daemonize the thread so it exits when the main program exits
         self.replication_thread.start()
@@ -57,7 +60,10 @@ class Node(raft_pb2_grpc.RaftServiceServicer):
                 if k == "currentTerm":
                     self.currentTerm = int(v)
                 elif k == "votedFor":
-                    self.votedFor = int(v)
+                    if v == "None":
+                        self.votedFor = None
+                    else:
+                        self.votedFor = int(v)
                 elif k == "commitLength":
                     self.commitLength = int(v)
                 elif k == "log":
@@ -81,16 +87,19 @@ class Node(raft_pb2_grpc.RaftServiceServicer):
 
     
     def stopElectionTimer(self):
-        if self.election_timer and self.election_timer.is_alive():
+        if self.election_timer.is_alive():
             self.election_timer.cancel()
             print(f"Election timer canceled for node {self.id}")
+            self.dump.write(f"Node {self.id} election timer canceled.\n")
         else:
             print(f"No active election timer to cancel for node {self.id}")
-            self.startElectionTimer()
+            self.dump.write(f"Node {self.id} has no active election timer to cancel.\n")
+        self.startElectionTimer()
 
 
     def electionTimeout(self):
         print(f"Election timeout for node {self.id}")
+        self.dump.write(f"Node {self.id} election timer timed out, Starting election.\n")
         self.currentTerm += 1
         self.currentRole = "Candidate"
         self.votedFor = self.id
@@ -127,8 +136,9 @@ class Node(raft_pb2_grpc.RaftServiceServicer):
 
                     self.receiveVoteResponse(response)
 
-                except Exception as e:
+                except grpc.RpcError as e:
                     print(f"Node {node} is down")
+                    self.dump.write(f"Error occurred while sending RequestVote RPC to Node {node}. It has crashed.\n")
                     continue
         
         self.startElectionTimer()
@@ -155,8 +165,10 @@ class Node(raft_pb2_grpc.RaftServiceServicer):
         if request.term == self.currentTerm and (self.votedFor == None or self.votedFor == request.candidate_id) and logOK:
             self.votedFor = request.candidate_id
             msg = ["VoteResponse", self.id, self.currentTerm, True]
+            self.dump.write(f"Vote granted for Node {request.candidate_id} in term {self.currentTerm}.\n")
         else:
             msg =  ["VoteResponse", self.id, self.currentTerm, False]
+            self.dump.write(f"Vote denied for Node {request.candidate_id} in term {self.currentTerm}.\n")
         
         response = raft_pb2.VoteResponse(vote_granted = msg[3], term = msg[2], id = msg[1])  # Example response
         return response
@@ -169,6 +181,7 @@ class Node(raft_pb2_grpc.RaftServiceServicer):
 
             if (len(self.votesReceived) > len(nodes)/2):
                 print(f"Node {self.id} is the leader")
+                self.dump.write(f"Node {self.id} became the leader for term {self.currentTerm}\n")
                 self.currentRole = "Leader"
                 self.currentLeader = self.id
                 self.stopElectionTimer()
@@ -204,6 +217,7 @@ class Node(raft_pb2_grpc.RaftServiceServicer):
         msg = request.Request
         if (self.currentRole == "Leader"):
             response = self.broadcastMessages(msg)         #return client request as success
+            self.dump.write(f"Node {self.id} (leader) received an {msg} request.\n")
         else:
             response = {"Data": msg, "LeaderID": self.currentLeader, "Success": False}      #client request failed; either update the client's leader id or there is no leader
         
@@ -211,11 +225,13 @@ class Node(raft_pb2_grpc.RaftServiceServicer):
     
 
     def periodicHeartbeats(self):
-        print("Heartbeat")
         while True:
             if self.currentRole == "Leader":
+                print("Heartbeat")
+                self.dump.write(f"Leader {self.id} sending heartbeat\n")      #YET TO ADD RENEW LEASE 
                 for node in nodes:
                     if node != self.id:
+                        print("sending heartbeat to node: ", node)
                         self.replicateLog(node)
             time.sleep(self.replication_interval)  # Sleep for the specified interval
 
@@ -247,8 +263,9 @@ class Node(raft_pb2_grpc.RaftServiceServicer):
 
             self.receiveLogResponse(response)
 
-        except Exception as e:
+        except grpc.RpcError as e:
             print(f"Node {node} is down. Cannot replicate log.")
+            self.dump.write(f"Error occurred while sending AppendEntries RPC to Node {node}. It has crashed.\n")
             return
 
     
@@ -256,6 +273,7 @@ class Node(raft_pb2_grpc.RaftServiceServicer):
         if request.currentTerm > self.currentTerm:
             self.currentTerm = request.currentTerm
             self.votedFor = None
+            print("due to replicate log, etimer stopped for node: ", self.id)
             self.stopElectionTimer()
         
         if request.currentTerm == self.currentTerm:
@@ -271,8 +289,10 @@ class Node(raft_pb2_grpc.RaftServiceServicer):
             self.appendEntries(request.prefixLen, request.leaderCommit, request.suffix)
             ack = request.prefixLen + len(request.suffix)
             response = raft_pb2.LogResponse(nodeId = self.id, currentTerm = self.currentTerm, ack = ack, Success = True)
+            self.dump.write(f"Node {self.id} accepted AppendEntries RPC from {request.leaderId}.\n")
         else:
             response = raft_pb2.LogResponse(nodeId = self.id, currentTerm = self.currentTerm, ack = 0, Success = False)
+            self.dump.write(f"Node {self.id} rejected AppendEntries RPC from {request.leaderId}.\n")
         
         return response
 
@@ -292,6 +312,7 @@ class Node(raft_pb2_grpc.RaftServiceServicer):
             self.currentRole = "Follower"
             self.votedFor = None
             self.stopElectionTimer()
+            self.dump.write(f"{self.id} Stepping down.\n")
         
 
     def appendEntries(self, prefixLen, leaderCommit, suffix):
@@ -313,6 +334,7 @@ class Node(raft_pb2_grpc.RaftServiceServicer):
                 print("Committing FOLLOWER log entry: ", self.log[i])        #store in logs.txt
                 f.write(self.log[i])
                 f.write("\n")
+                self.dump.write(f"Node {self.id} (follower) committed the entry {self.log[i]} to the state machine\n")      #MIGHT HAVE TO SLICE THE TERM NUMBER OUT
             f.close()
 
             self.commitLength = leaderCommit
@@ -335,6 +357,7 @@ class Node(raft_pb2_grpc.RaftServiceServicer):
                 f.write("\n")
                 f.close()
                 self.commitLength += 1
+                self.dump.write(f"Node {self.id} (leader) committed the entry {self.log[self.commitLength]} to the state machine.\n")      #MIGHT HAVE TO SLICE THE TERM NUMBER OUT
             else:
                 break
 
@@ -353,6 +376,7 @@ class Node(raft_pb2_grpc.RaftServiceServicer):
     def signalHandler(self, sig, frame):
         print("Exiting...")
         self.storeMetadata()
+        self.dump.close()
         sys.exit(0)
 
         
