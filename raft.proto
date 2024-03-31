@@ -11,6 +11,7 @@ message VoteResponse {
   bool vote_granted = 1;
   int32 term = 2;
   int32 id = 3;
+  int32 currentLease = 4;
 }
 
 
@@ -21,6 +22,8 @@ message LogRequest {
   int32 prefixTerm = 4;
   int32 leaderCommit = 5;
   repeated string suffix = 6;
+  int32 leaderLease = 7;
+
 }
 
 message LogResponse {
