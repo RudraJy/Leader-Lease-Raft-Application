@@ -498,30 +498,39 @@ class Node(raft_pb2_grpc.RaftServiceServicer):
 
 
 if __name__ == "__main__":
-    print("--------------------------------------------")
-    print("Welcome to the Raft Consensus Algorithm with Leader Lease Simulation\n")
-    print("--------------------------------------------")
-    num_nodes = int(input("Enter the number of nodes: "))
-    print("Please enter all node addresses in the format: localhost:port \nExample: localhost:500")
-    for i in range(num_nodes):
-        nodes.append(input(f"Enter node {i} address: "))
-    node_id = int(input("Enter node ID: "))  # Example node id
+    try:
+        print("--------------------------------------------")
+        print("Welcome to the Raft Consensus Algorithm with Leader Lease Simulation\n")
+        print("--------------------------------------------")
+        num_nodes = int(input("Enter the number of nodes: "))
+        print("Please enter all node addresses in the format: localhost:port \nExample: localhost:500")
+        for i in range(num_nodes):
+            nodes.append(input(f"Enter node {i} address: "))
+        node_id = int(input("Enter node ID: "))  # Example node id
 
-    current_directory = os.getcwd()
-    new_folder = "logs_node_" + str(node_id)
-    final_directory = os.path.join(current_directory, new_folder)
-    if not os.path.exists(final_directory):
-        os.makedirs(final_directory)
+        current_directory = os.getcwd()
+        new_folder = "logs_node_" + str(node_id)
+        final_directory = os.path.join(current_directory, new_folder)
+        if not os.path.exists(final_directory):
+            os.makedirs(final_directory)
 
-    node_address = nodes[node_id]  # Example node address
-    # client_address = "localhost:8080"  # Example client address
+        node_address = nodes[node_id]  # Example node address
+        # client_address = "localhost:8080"  # Example client address
 
-    node = Node(node_id, node_address)
+        node = Node(node_id, node_address)
     
 
-    node.startElectionTimer()
-    while True:
-        pass
+        node.startElectionTimer()
+        while True:
+            pass
+    except KeyboardInterrupt:
+        print("Exiting...")
+        node.storeMetadata()
+        node.dump.close()
+        sys.exit(0)
+    except Exception as e:
+        print(f"Error occurred: {e}, Exiting...")
+        sys.exit(1)
 
 
 
