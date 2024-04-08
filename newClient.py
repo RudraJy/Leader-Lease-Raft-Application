@@ -3,7 +3,7 @@ import raft_pb2
 import raft_pb2_grpc
 import random  
 
-nodes = {1: "localhost:50051", 2: "localhost:50052", 3: "localhost:50053"}  
+nodes = {1: "localhost:50051", 2: "localhost:50052", 3: "localhost:50053", 4: "localhost:50054", 5: "localhost:50055"}  
 
 class RaftClient:
     def __init__(self):
@@ -21,9 +21,9 @@ class RaftClient:
                 print("oneee")
     
                 if response.Success == True:
-                    print(f"Request succeeded on node {node}, Response: {response.Data}")
+                    data = f"SUCCESS: Request succeeded on node {node}, Response: {response.Data}"
                     print("twooo")
-                    return response.Data  # Request succeeded, we're done
+                    return data
                     
 
                 # Update leader information if redirection occurred
@@ -37,10 +37,10 @@ class RaftClient:
                 
                 # No leader available
                 elif response.LeaderID == None:
-                    print("FAILURE MESSAGE: NO LEADER AVAILABLE")
+                    data = "FAILURE MESSAGE: NO LEADER AVAILABLE"
                     print("fourrr")
                     self.current_leader_id = None
-                    return response
+                    return data
 
             except grpc.RpcError as e:
                 if e.code() == grpc.StatusCode.UNAVAILABLE:
@@ -49,7 +49,8 @@ class RaftClient:
                     self.current_leader_id = None
                     continue  # Try the next node
                 else:
-                    print(e)
+                    print(f"SUCCESS: Request succeeded on node {node}, Response: {response.Data}")
+                    break
 
     def _get_node(self):
         if self.current_leader_id:
@@ -68,7 +69,7 @@ if(__name__=="__main__"):
         while(True):
             request = input("Enter request: ")
             response = client.send_request(request)
-            print(f"Response: {response}")
+            print(response)
     except KeyboardInterrupt:
         print("Exiting...")
     except Exception as e:
