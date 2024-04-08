@@ -46,7 +46,7 @@ class Node(raft_pb2_grpc.RaftServiceServicer):
 
         self.startElectionTimer()
 
-        self.replication_interval = 1         # Adjust the interval as needed (in seconds)
+        self.replication_interval = 5        # Adjust the interval as needed (in seconds)
         self.replication_thread = threading.Thread(target=self.periodicHeartbeats)
         self.replication_thread.daemon = True          # Daemonize the thread so it exits when the main program exits
         self.replication_thread.start()
@@ -90,7 +90,7 @@ class Node(raft_pb2_grpc.RaftServiceServicer):
         self.election_timer.daemon = True  # Set as daemon thread
         self.election_timer.start()
 
-        print(f"Election timer started for node {self.id}. Timeout: {timeout} seconds")
+        #print(f"Election timer started for node {self.id}. Timeout: {timeout} seconds")
 
     
     def startLeaseTimer(self):
@@ -101,30 +101,33 @@ class Node(raft_pb2_grpc.RaftServiceServicer):
         self.leaseTimer = threading.Timer(timeout, timeForLeaseTimeout)
         self.leaseTimer.daemon = True  # Set as daemon thread
         self.leaseTimer.start()
-        print(f"Lease timer started for node {self.id}. Timeout: {timeout} seconds")
+        #print(f"Lease timer started for node {self.id}. Timeout: {timeout} seconds")
 
     
     def stopElectionTimer(self):
         if self.election_timer.is_alive():
             self.election_timer.cancel()
-            print(f"Election timer canceled for node {self.id}")
+            #print(f"Election timer canceled for node {self.id}")
         else:
-            print(f"No active election timer to cancel for node {self.id}")
+            pass
+            #print(f"No active election timer to cancel for node {self.id}")
+        
         self.startElectionTimer()
 
 
     def stopLeaseTimer(self):
         if self.leaseTimer.is_alive():
             self.leaseTimer.cancel()
-            print(f"Lease timer canceled for node {self.id}")
+            #print(f"Lease timer canceled for node {self.id}")
         else:
-            print(f"No active lease timer to cancel for node {self.id}")
+            pass
+            #print(f"No active lease timer to cancel for node {self.id}")
         self.oldLease=0
         self.startLeaseTimer()
 
 
     def LeaseTimeout(self):
-        print(f"Lease timeout for node {self.id}")
+        #print(f"Lease timeout for node {self.id}")
         if self.currentRole == "Leader": 
             self.currentRole = 'Follower'
             self.votedFor = None  
@@ -132,9 +135,9 @@ class Node(raft_pb2_grpc.RaftServiceServicer):
 
 
     def electionTimeout(self):
-        print(f"Election timeout for node {self.id}")
+        #print(f"Election timeout for node {self.id}")
         self.dump.write(f"Node {self.id} election timer timed out, Starting election.\n")
-        self.startElectionTimer()
+        #self.startElectionTimer()
 
         self.currentTerm += 1
         self.currentRole = "Candidate"
@@ -153,7 +156,7 @@ class Node(raft_pb2_grpc.RaftServiceServicer):
         for node in nodes:
             if node != self.id:
                 print()
-                print("follower node is ", node)
+                #print("follower node is ", node)
                 '''request = voteRequest(      
                     address = nodes[node],
                     msg = msg
@@ -165,10 +168,10 @@ class Node(raft_pb2_grpc.RaftServiceServicer):
                     request = raft_pb2.VoteRequest(candidate_id = msg[1], term = msg[2], log_length = msg[3], last_log_term = msg[4])  # Example request
                     response = stub.receiveVoteRequest(request)   #rpc to receive vote request response
 
-                    print("vote_granted: ", response.vote_granted)
+                    '''print("vote_granted: ", response.vote_granted)
                     print("term: ", response.term)
                     print("id: ", response.id)
-                    print()
+                    print()'''
 
                     self.receiveVoteResponse(response)
 
@@ -176,11 +179,15 @@ class Node(raft_pb2_grpc.RaftServiceServicer):
                     print(f"Node {node} is down")
                     self.dump.write(f"Error occurred while sending RequestVote RPC to Node {node}. It has crashed.\n")
                     continue
+                except Exception as e:
+                    continue
+            
+        self.startElectionTimer()
         
         
 
     def receiveVoteRequest(self, request, context):
-        print("im voting for ", request.candidate_id)
+        #print("im voting for ", request.candidate_id)
         if request.term > self.currentTerm:
             self.currentTerm = request.term
             self.currentRole = "Follower"
@@ -230,22 +237,24 @@ class Node(raft_pb2_grpc.RaftServiceServicer):
                 self.dump.write( "New Leader waiting for Old Leader Lease to timeout.\n")
                 time.sleep(self.oldLease) 
                 self.startLeaseTimer()
-                self.log.append(f"NO-OP {self.currentTerm}")     # Add a NO-OP entry to the log
+                print(f"NO-OP {self.currentTerm}")
+                #self.log.append(f"NO-OP {self.currentTerm}")     # Add a NO-OP entry to the log
                 #self.commitLogEntries()
                 for node in nodes:                               #NEED TO CHECK IF THIS IS FOR ALL NODES OR ONLY FOLLOWERS
                     if node != self.id:
                         self.sentLength[node] = len(self.log)
                         self.ackLength[node] = 0
-                        self.replicateLog(node)
+    
             
         elif response.term > self.currentTerm:
-            print(f"Node {self.id} is reverting to follower")
+            #print(f"Node {self.id} is reverting to follower")
             self.currentTerm = response.term
             self.currentRole = "Follower"
             self.votedFor = None
             self.stopElectionTimer()
         else:
-            print(f"DENIED")
+            pass
+            #print(f"DENIED")
 
 
     def broadcastMessages(self, msg):      #msg is of the form either SET k v or GET k
@@ -275,7 +284,7 @@ class Node(raft_pb2_grpc.RaftServiceServicer):
     
     def serveClient(self, request, context):
         msg = request.Request
-        print(msg)
+        #print(msg)
         if (self.currentRole == "Leader" and self.leaseTimer.is_alive()):
             self.dump.write(f"Node {self.id} (leader) received an {msg} request\n")
             arr=msg.split(" ")
@@ -296,16 +305,16 @@ class Node(raft_pb2_grpc.RaftServiceServicer):
     def periodicHeartbeats(self):
         while True:
             if self.currentRole == "Leader" and self.leaseTimer.is_alive():
-                print("Heartbeat")
+                #print("Heartbeat")
                 for node in nodes:
                     if node != self.id:
-                        print("sending heartbeat to node: ", node)
-                        self.replicateLog(node, "FROM heart")
+                        #print("sending heartbeat to node: ", node)
+                        self.replicateLog(node)
             time.sleep(self.replication_interval)  # Sleep for the specified interval
 
 
     
-    def replicateLog(self, node, str = "NOT FROM heart"):
+    def replicateLog(self, node):
         try:
             self.dump.write(f"Leader {self.id} sending heartbeat & Renewing Lease.\n")  
             prefixLen = self.sentLength[node]
@@ -323,21 +332,24 @@ class Node(raft_pb2_grpc.RaftServiceServicer):
             stub = raft_pb2_grpc.RaftServiceStub(channel)
             request = raft_pb2.LogRequest(leaderId = self.id, currentTerm = self.currentTerm, prefixLen = prefixLen, prefixTerm = prefixTerm, leaderCommit = self.commitLength, suffix = suffix, leaderLease = self.leaseDuration)  
             response = stub.receiveLogRequest(request)   #rpc to receive log request response
-            print("there")
+            #print("there")
 
-            print()
-            print(str)
-            print("Node: ", node)
-            print("Current term: ", response.currentTerm)
-            print("Ack: ", response.ack)
-            print("Success: ", response.Success)
-            print()
+            path = os.getcwd() + "/logs_node_" + str(self.id)
+            location = os.path.join(path, "test.txt")
+            f = open(location, "w")
+            f.write("Node: " + str(node))
+            f.write("Current term: " +  str(response.currentTerm))
+            f.write("Ack: " + str(response.ack))
+            f.write("Success: " + str(response.Success))
 
             self.receiveLogResponse(response)
 
         except grpc.RpcError as e:
-            print(f"Node {node} is down. Cannot replicate log.")
+            #print(f"Node {node} is down. Cannot replicate log.")
             self.dump.write(f"Error occurred while sending AppendEntries RPC to Node {node}. It has crashed.\n")
+            return
+        
+        except Exception as e:
             return
 
     
