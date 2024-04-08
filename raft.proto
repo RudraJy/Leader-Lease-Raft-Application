@@ -23,7 +23,6 @@ message LogRequest {
   int32 leaderCommit = 5;
   repeated string suffix = 6;
   int32 leaderLease = 7;
-
 }
 
 message LogResponse {
