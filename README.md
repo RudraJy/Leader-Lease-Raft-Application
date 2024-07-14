@@ -54,8 +54,4 @@ This project is an implementation of the Raft consensus algorithm in Python. Raf
 - **raft.py**: Core implementation of the Raft algorithm.
 - **logs/**: Directory where logs are stored for each node.
 
-## Examples
 
-### Starting a Server Node
-```bash
-python server.py --id 1
